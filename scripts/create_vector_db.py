@@ -2,26 +2,29 @@
 and store relevant artifacts in Weights & Biases.
 """
 import json
+import time
 import logging
 import os
 import pathlib
 from typing import List, Union
 import shutil
-import wandb
 import langchain
+import openai
 from langchain.docstore.document import Document
 from langchain.text_splitter import MarkdownTextSplitter
 from langchain_community.cache import SQLiteCache
 from langchain_community.vectorstores import Chroma
 from langchain_openai import OpenAIEmbeddings
+import wandb
 from wandb import Artifact
+
 
 
 ########################################
 # CONFIG
 ########################################
 # Path to the JSONL file containing the scraped lecture data.
-LECTURES_JSONL = "../Data/lectures.jsonl"
+LECTURES_JSONL = "../Data/bak/lectures.jsonl"
 
 # Directory where the Chroma vector database will be persisted.
 CHROMA_PERSIST_DIR = "../Data/vector_store"
@@ -32,10 +35,15 @@ OVERWRITE_VECTOR_DB = True
 
 # Chunking parameters: chunk size (approximate token count) and overlap.
 CHUNK_SIZE = 8096
-CHUNK_OVERLAP = 800
+CHUNK_OVERLAP = 200
+
+# Additional config for controlling request size & retries
+EMBED_BATCH_SIZE = 100
+EMBED_MAX_RETRIES = 5
+
 
 # OpenAI Embedding model to use.
-OPENAI_EMBED_MODEL = "text-embedding-3-small"    # or "text-embedding-ada-002"
+OPENAI_EMBED_MODEL = "text-embedding-ada-002"    # or "text-embedding-3-small"
 
 LANGCHAIN_DATABASE = "../Data/langchain.db"
 
@@ -44,12 +52,13 @@ WANDB_PROJECT = "llmapps"
 OPENAI_KEY_FILE = "../key.txt"
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 langchain.llm_cache = SQLiteCache(database_path=LANGCHAIN_DATABASE)
+
 
 ########################################
 # Configure OpenAI API Key
 ########################################
-
 def configure_openai_api_key():
     """
     Ensure that the OPENAI_API_KEY is set in the environment.
@@ -62,6 +71,46 @@ def configure_openai_api_key():
                 os.environ["OPENAI_API_KEY"] = f.read().strip()
     if not os.getenv("OPENAI_API_KEY", "").startswith("sk-"):
         raise ValueError("Please set a valid OPENAI_API_KEY environment variable or key.txt")
+
+
+########################################
+# A Custom OpenAIEmbeddings Subclass to Handle RateLimitError
+########################################
+class RateLimitRetryOpenAIEmbeddings(OpenAIEmbeddings):
+    """
+    Subclass of OpenAIEmbeddings that intercepts RateLimitError.
+    When encountered, sleeps for 60 seconds, then retries.
+    """
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        batch_size = EMBED_BATCH_SIZE
+        all_embeddings = []
+        # Process the texts in batches
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i : i + batch_size]
+            success = False
+            while not success:
+                try:
+                    # Call the original embed_documents for the current batch
+                    batch_embeddings = super().embed_documents(batch)
+                    success = True
+                except openai.RateLimitError as e:
+                    logger.warning(
+                        f"Rate limit error on batch {i//batch_size}: {e}. Waiting 60 seconds before retrying..."
+                    )
+                    time.sleep(60)
+            all_embeddings.extend(batch_embeddings)
+            # Optional: add a short pause between batches to help with rate limits
+            time.sleep(1)
+        return all_embeddings
+
+    def embed_query(self, text: str) -> List[float]:
+        while True:
+            try:
+                return super().embed_query(text)
+            except openai.RateLimitError as e:
+                logger.warning(f"Rate limit error on embed_query: {e}. Waiting 60 seconds before retrying...")
+                time.sleep(60)
 
 
 ########################################
@@ -156,11 +205,10 @@ def extract_docs_from_object(obj: Union[dict, list], parent_path: str = "ROOT") 
 
     return docs
 
+
 ########################################
 # Chunk Documents
 ########################################
-
-
 def chunk_documents(documents: List[Document], chunk_size: int = CHUNK_SIZE, chunk_overlap: int = CHUNK_OVERLAP) -> \
 List[Document]:
     """
@@ -182,7 +230,6 @@ List[Document]:
 ########################################
 # Create a Chroma DB from Documents
 ########################################
-
 def create_vector_store(documents: List[Document], persist_dir: str = CHROMA_PERSIST_DIR) -> Chroma:
     """
     Create a Chroma vector store from a list of documents using OpenAI embeddings.
@@ -195,8 +242,13 @@ def create_vector_store(documents: List[Document], persist_dir: str = CHROMA_PER
         Chroma: The created vector store.
     """
     logger.info(f"Creating embeddings for {len(documents)} documents...")
+
     # Create the embedding function using the global API key.
-    embedding_function = OpenAIEmbeddings(openai_api_key=os.getenv("OPENAI_API_KEY"), model=OPENAI_EMBED_MODEL)
+    embedding_function = RateLimitRetryOpenAIEmbeddings(
+        openai_api_key=os.getenv("OPENAI_API_KEY"),
+        model=OPENAI_EMBED_MODEL,
+    )
+
     vector_store = Chroma.from_documents(
         documents=documents,
         embedding=embedding_function,
@@ -205,10 +257,10 @@ def create_vector_store(documents: List[Document], persist_dir: str = CHROMA_PER
     logger.info(f"Vector store persisted at '{persist_dir}'.")
     return vector_store
 
+
 ########################################
 # Weights & Biases Logging Functions
 ########################################
-
 def log_dataset(documents: List[Document], run: wandb.run):
     """
     Log the dataset to Weights & Biases as a dataset artifact.
@@ -237,10 +289,10 @@ def log_index(vector_store_dir: str, run: wandb.run):
     run.log_artifact(index_artifact)
     logger.info("Vector store logged to W&B.")
 
+
 ########################################
 # Main Ingestion Function
 ########################################
-
 def ingest_data() -> tuple[List[Document], Chroma]:
     """
     Ingest data from the lectures JSONL file:
@@ -273,21 +325,21 @@ def main():
     configure_openai_api_key()
 
     # 2. Initialize a Weights & Biases run.
-    run = wandb.init(project=WANDB_PROJECT, config={
+    '''run = wandb.init(project=WANDB_PROJECT, config={
         "jsonl_file": LECTURES_JSONL,
         "chunk_size": CHUNK_SIZE,
         "chunk_overlap": CHUNK_OVERLAP,
         "vector_store": CHROMA_PERSIST_DIR
-    })
+    })'''
 
     # 3. Ingest the data and create the vector store.
     documents, vector_store = ingest_data()
 
     # 4. Log the dataset, vector store, and prompt (if provided) to W&B.
-    log_dataset(documents, run)
-    log_index(CHROMA_PERSIST_DIR, run)
+    #log_dataset(documents, run)
+    #log_index(CHROMA_PERSIST_DIR, run)
 
-    run.finish()
+    #run.finish()
     logger.info("Ingestion and logging complete.")
 
 

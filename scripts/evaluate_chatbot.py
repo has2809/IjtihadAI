@@ -4,7 +4,7 @@ evaluate_chatbot.py
 Evaluate your chatbot on a local evaluation dataset by:
  1) Loading question + reference answers from a local CSV or JSON.
  2) Generating answers from your chatbot chain for each question.
- 3) Using QAEvalChain or a simpler approach to label them CORRECT or INCORRECT.
+ 3) Using QAEvalChain to label them CORRECT or INCORRECT.
  4) Calculating metrics like accuracy.
  5) Writing a text-based report and a CSV with final results.
 
@@ -21,50 +21,32 @@ from langchain_community.chat_models import ChatOpenAI
 from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
 from tqdm import tqdm
-
-# If you have a local chain loader or something like chain.py, import it:
-# from chain import load_chain, load_vector_store  # Example
-# OR from chatbot import create_conversational_chain, load_local_chroma_db, etc.
+from chatbot import create_conversational_chain, load_chat_prompt_from_file, load_local_chroma_db, configure_openai_api_key, CHROMA_DB_DIR, PROMPTS_FILE
 
 ########################
 # Configuration
 ########################
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", None)
-# For example, you might have:
-# from your_chatbot_file import create_conversational_chain, load_local_chroma_db, ...
-CHROMA_DB_DIR = "../Data/vector_store"
-EVAL_DATA_PATH = "../Data/evaluation_dataset.csv"   # or JSONL if you prefer
-RESULTS_CSV = "eval_results.csv"
-REPORT_FILE = "evaluation_report.txt"
+#EVAL_DATA_PATH = "../Data/generated_evaluation.jsonl"   # or csv
+EVAL_DATA_PATH = "../Data/islamqa_evaluation.jsonl"
+RESULTS_CSV = "../reports/eval_results.csv"
+REPORT_FILE = "../reports/evaluation_report.txt"
+MODEL_NAME = "gpt-4o-mini"
+
 
 ########################
 # 1) Load or configure chain
 ########################
 def configure_chain():
     """
-    Load or create a retrieval-based chain from your code.
+    Load a retrieval-based chain from your code.
     For example:
       1) load a local Chroma db
       2) create a ConversationalRetrievalChain
     """
-    # Pseudocode:
-    # db = load_local_chroma_db(CHROMA_DB_DIR, OPENAI_API_KEY)
-    # prompt_template = load_chat_prompt_from_file("prompts.json")
-    # chain = create_conversational_chain(db, prompt_template, OPENAI_API_KEY)
-    # return chain
-
-    # For demonstration, let's just create a dummy chain or an LLM instance:
-    # If your chain is a simple Q&A, you can do something like:
-    # dummy_llm = ChatOpenAI(openai_api_key=OPENAI_API_KEY, temperature=0, model_name="gpt-3.5-turbo")
-    # But we want a chain that takes: {"question": q, "chat_history": [...]}
-
-    # The simplest fallback, if you have no retrieval, might be:
-    # from langchain.chains import LLMChain
-    # from langchain.prompts import PromptTemplate
-    # ...
-    # But let's assume you have a real retrieval chain from your code.
-
-    raise NotImplementedError("Please implement chain loading logic from your own code.")
+    db = load_local_chroma_db(CHROMA_DB_DIR, os.environ["OPENAI_API_KEY"])
+    prompt_template = load_chat_prompt_from_file(PROMPTS_FILE)
+    chain = create_conversational_chain(db, prompt_template, os.environ["OPENAI_API_KEY"])
+    return chain
 
 
 ########################
@@ -113,18 +95,18 @@ def generate_answers(df: pd.DataFrame, chain: ConversationalRetrievalChain) -> p
 
 
 ########################
-# 4) Evaluate answers (Using QAEvalChain or a naive approach)
+# 4) Evaluate answers (Using QAEvalChain)
 ########################
 def evaluate_answers(df: pd.DataFrame) -> pd.DataFrame:
     """
     We'll use a QAEvalChain to label each row as CORRECT or INCORRECT.
     This requires a short prompt for the evaluator.
     """
-    # If you have your own prompt, you can define it or load it from file:
     eval_prompt = PromptTemplate(
         template="""
-You are an evaluator. You will be given a question, a reference answer, and a chatbot's answer.
-Decide if the chatbot's answer is CORRECT or INCORRECT based on the reference.
+You are an evaluator. You will be given a question, the reference answer, and the chatbot's answer. 
+If the chatbot's answer does not match the reference, or does not cover the essential points from the reference, it is INCORRECT.
+If the chatbot's answer significantly differs from the reference or is incomplete, it is INCORRECT. Otherwise, it's CORRECT.
 
 QUESTION: {query}
 REFERENCE ANSWER: {answer}
@@ -138,8 +120,8 @@ GRADE: CORRECT or INCORRECT
     # Create an LLM for evaluation
     evaluator_llm = ChatOpenAI(
         temperature=0,
-        openai_api_key=OPENAI_API_KEY,
-        model_name="gpt-3.5-turbo"  # or whichever model
+        openai_api_key=os.environ["OPENAI_API_KEY"],
+        model_name=MODEL_NAME
     )
     eval_chain = QAEvalChain.from_llm(evaluator_llm, prompt=eval_prompt)
 
@@ -228,8 +210,9 @@ def write_report(df: pd.DataFrame) -> None:
 # 6) Main
 ########################
 def main():
-    # 1) Load or create chain
-    chain = configure_chain()  # Implement in your code
+    configure_openai_api_key()
+    # Load chain
+    chain = configure_chain()
 
     # 2) Load dataset
     df = load_evaluation_dataset(EVAL_DATA_PATH)

@@ -14,7 +14,7 @@ OPENAI_KEY_FILE = '../key.txt'
 SCRAPED_DATA_FILE = "../Data/lectures.jsonl"
 
 # 2) Output file for the generated Q&A pairs.
-OUTPUT_EVAL_FILE = "../Data/evaluation_dataset.jsonl"
+OUTPUT_EVAL_FILE = "../Data/generated_evaluation.jsonl"
 
 # 3) Global token usage limit (input + output tokens).
 MAX_TOKEN_USAGE = 1_000_000
