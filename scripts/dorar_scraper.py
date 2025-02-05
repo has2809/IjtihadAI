@@ -71,7 +71,7 @@ def expand_and_collect_links(driver, li_element, path_so_far):
     try:
         clickable = li_element.find_element(By.CSS_SELECTOR, "a[style='cursor: pointer;']")
         driver.execute_script("arguments[0].click();", clickable)
-        time.sleep(4)  # Small delay for the DOM to update
+        time.sleep(2)  # Small delay for the DOM to update
         #WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, ":scope > ul > li.mtree-node")))
     except Exception:
         # Possibly no clickable element => might be a leaf
