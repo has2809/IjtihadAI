@@ -72,6 +72,7 @@ def expand_and_collect_links(driver, li_element, path_so_far):
         clickable = li_element.find_element(By.CSS_SELECTOR, "a[style='cursor: pointer;']")
         driver.execute_script("arguments[0].click();", clickable)
         time.sleep(2)  # Small delay for the DOM to update
+        #WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, ":scope > ul")))
         #WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, ":scope > ul > li.mtree-node")))
     except Exception:
         # Possibly no clickable element => might be a leaf
@@ -82,10 +83,13 @@ def expand_and_collect_links(driver, li_element, path_so_far):
     #    These are typically <a href="/feqhia/123"> elements
     links_in_li = li_element.find_elements(By.CSS_SELECTOR, "a[href*='/feqhia/']")
     for link_el in links_in_li:
+        time.sleep(0.1)
         href = link_el.get_attribute("href")
         title = link_el.text.strip()
+        #title = driver.execute_script("return arguments[0].textContent;", link_el).strip()
         # In some structures, the text might be empty or repeated. Filter if needed:
         if href and title:
+            print(title)
             # We store the link with the path + the link's own title
             num_lectures += 1
             lecture_content = fetch_lecture_text(href)

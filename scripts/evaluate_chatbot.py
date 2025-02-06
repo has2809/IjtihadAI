@@ -46,7 +46,7 @@ EVAL_DATASETS = [
     ("Generated QAs", "../Data/generated_evaluation.jsonl"),
     ("IslamQA QAs", "../Data/islamqa_evaluation.jsonl"),
 ]'''
-EVAL_DATASETS = [("Generated QAs", "../Data/ifta_evaluation.jsonl")]
+EVAL_DATASETS = [("Ifta_ly QAs", "../Data/ifta_evaluation.jsonl")]
 
 RESULTS_DIR = "../reports"
 MODEL_NAME = "gpt-4o-mini"
@@ -131,20 +131,11 @@ def evaluate_answers(df: pd.DataFrame, dataset_label: str) -> pd.DataFrame:
 
     We'll store the final label in "model_score".
     """
-
+    with open(PROMPTS_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
     # QAEvalChain for the rest
     eval_prompt = PromptTemplate(
-        template="""
-You are an evaluator. You will be given a question, the reference answer, and the chatbot's answer. 
-If the chatbot's answer does not match or is missing essential info from the reference, label it INCORRECT.
-Otherwise, label it CORRECT.
-
-QUESTION: {query}
-REFERENCE ANSWER: {answer}
-CHATBOT ANSWER: {result}
-
-GRADE: CORRECT or INCORRECT
-""",
+        template=data["evaluation_template"],
         input_variables=["query", "answer", "result"],
     )
 
