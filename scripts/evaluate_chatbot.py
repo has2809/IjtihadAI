@@ -41,10 +41,12 @@ from chatbot import (
 ########################
 # Configuration
 ########################
+'''
 EVAL_DATASETS = [
     ("Generated QAs", "../Data/generated_evaluation.jsonl"),
     ("IslamQA QAs", "../Data/islamqa_evaluation.jsonl"),
-]
+]'''
+EVAL_DATASETS = [("Generated QAs", "../Data/ifta_evaluation.jsonl")]
 
 RESULTS_DIR = "../reports"
 MODEL_NAME = "gpt-4o-mini"
@@ -125,35 +127,12 @@ def generate_answers(df: pd.DataFrame, chain: ConversationalRetrievalChain) -> p
 ########################
 def evaluate_answers(df: pd.DataFrame, dataset_label: str) -> pd.DataFrame:
     """
-    We'll do two steps:
-     1) Auto-label obviously wrong answers (like "I'm sorry..." if reference is non-empty).
-     2) Use QAEvalChain to label the rest as CORRECT or INCORRECT.
+    Use QAEvalChain to label the answers as CORRECT or INCORRECT.
 
     We'll store the final label in "model_score".
     """
-    # 4.1) Auto-label pass:
-    auto_labels = []
-    for i, row in df.iterrows():
-        ref_answer = str(row["answer"]).strip()
-        model_answer = str(row["model_answer"]).strip()
 
-        # If there's a non-empty reference, but the model just disclaim "I don't have info..."
-        # or "I'm sorry" => label INCORRECT
-        # We'll look for some keywords in both English/Arabic
-        disclaim_phrases = [
-            "i'm sorry", "i am sorry", "i don't have", "i do not have",
-            "أنا آسف", "ليس لدي المعلومات", "لا أمتلك المعلومات"
-        ]
-
-        is_disclaim = any(phrase.lower() in model_answer.lower() for phrase in disclaim_phrases)
-        if ref_answer and is_disclaim:
-            auto_labels.append("INCORRECT")
-        else:
-            auto_labels.append("UNLABELED")  # We'll let QAEvalChain decide
-
-    df["auto_label"] = auto_labels
-
-    # 4.2) QAEvalChain for the rest
+    # QAEvalChain for the rest
     eval_prompt = PromptTemplate(
         template="""
 You are an evaluator. You will be given a question, the reference answer, and the chatbot's answer. 
@@ -181,15 +160,11 @@ GRADE: CORRECT or INCORRECT
     # We'll only run the chain for rows that are UNLABELED
     # then combine them with the auto_label
     for i, row in df.iterrows():
-        if row["auto_label"] == "UNLABELED":
-            q = str(row["question"])
-            ref_a = str(row["answer"])
-            model_a = str(row["model_answer"])
-            examples.append({"query": q, "answer": ref_a})
-            predictions.append({"query": q, "answer": ref_a, "result": model_a})
-        else:
-            # we won't run the chain, we already have auto_label
-            pass
+        q = str(row["question"])
+        ref_a = str(row["answer"])
+        model_a = str(row["model_answer"])
+        examples.append({"query": q, "answer": ref_a})
+        predictions.append({"query": q, "answer": ref_a, "result": model_a})
 
     if len(examples) > 0:
         graded_outputs = eval_chain.evaluate(examples, predictions)
@@ -202,18 +177,14 @@ GRADE: CORRECT or INCORRECT
 
     final_labels = []
     for i, row in df.iterrows():
-        if row["auto_label"] != "UNLABELED":
-            # use auto_label
-            final_labels.append(row["auto_label"])
+        txt = graded_outputs[chain_idx].get("results", "")
+        chain_idx += 1
+        if "INCORRECT" in txt:
+            final_labels.append("INCORRECT")
+        elif "CORRECT" in txt:
+            final_labels.append("CORRECT")
         else:
-            txt = graded_outputs[chain_idx].get("results", "")
-            chain_idx += 1
-            if "CORRECT" in txt:
-                final_labels.append("CORRECT")
-            elif "INCORRECT" in txt:
-                final_labels.append("INCORRECT")
-            else:
-                final_labels.append("UNKNOWN")
+            final_labels.append("UNKNOWN")
 
     df["model_score"] = final_labels
     return df
