@@ -4,6 +4,7 @@ and store relevant artifacts in Weights & Biases.
 import json
 import time
 import logging
+import re
 import os
 import pathlib
 from typing import List, Union
@@ -71,6 +72,14 @@ def configure_openai_api_key():
                 os.environ["OPENAI_API_KEY"] = f.read().strip()
     if not os.getenv("OPENAI_API_KEY", "").startswith("sk-"):
         raise ValueError("Please set a valid OPENAI_API_KEY environment variable or key.txt")
+
+
+########################################
+# Utility to Remove Arabic Diacritics (Harakat)
+########################################
+def remove_arabic_diacritics(text: str) -> str:
+    """Remove common Arabic diacritics (harakat) from the text."""
+    return re.sub(r"[\u0617-\u061A\u064B-\u0652]+", "", text)
 
 
 ########################################
@@ -242,6 +251,11 @@ def create_vector_store(documents: List[Document], persist_dir: str = CHROMA_PER
         Chroma: The created vector store.
     """
     logger.info(f"Creating embeddings for {len(documents)} documents...")
+
+    # Remove harakat from each document before embedding
+    for doc in documents:
+        doc.page_content = remove_arabic_diacritics(doc.page_content)
+        pass
 
     # Create the embedding function using the global API key.
     embedding_function = RateLimitRetryOpenAIEmbeddings(

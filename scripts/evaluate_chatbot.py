@@ -41,12 +41,11 @@ from chatbot import (
 ########################
 # Configuration
 ########################
-'''
 EVAL_DATASETS = [
     ("Generated QAs", "../Data/generated_evaluation.jsonl"),
     ("IslamQA QAs", "../Data/islamqa_evaluation.jsonl"),
-]'''
-EVAL_DATASETS = [("Ifta_ly QAs", "../Data/ifta_evaluation.jsonl")]
+    ("Ifta_ly QAs", "../Data/ifta_evaluation.jsonl"),
+]
 
 RESULTS_DIR = "../reports"
 MODEL_NAME = "gpt-4o-mini"

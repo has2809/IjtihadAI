@@ -38,7 +38,7 @@ QUESTION_TYPES = ["General"]
 MAX_QUESTIONS_PER_CHUNK = 2
 
 # 10) Max # of Q&As total for each category
-MAX_QUESTIONS_PER_CATEGORY = 10
+MAX_QUESTIONS_PER_CATEGORY = 20
 
 # 11) Global max # of Q&As across entire dataset
 MAX_QUESTIONS_TOTAL = 100
